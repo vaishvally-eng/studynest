@@ -43,41 +43,44 @@ export default function SpotifyWidget() {
   }, []);
 
   return (
-    <>
-      {/* Minimized icon — always rendered when minimized */}
-      {minimized && (
+    <div
+      onMouseDown={minimized ? undefined : onMouseDown}
+      style={{
+        position: "fixed",
+        bottom: pos.y,
+        right: pos.x,
+        zIndex: 1000,
+        width: minimized ? "220px" : "340px",
+        background: "rgba(255, 245, 240, 0.95)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        border: "1px solid rgba(249,123,92,0.2)",
+        borderRadius: minimized ? "50px" : "24px",
+        overflow: "hidden",
+        boxShadow: "0 8px 32px rgba(249,123,92,0.15), 0 2px 8px rgba(0,0,0,0.08)",
+        cursor: minimized ? "pointer" : "grab",
+        userSelect: "none",
+        transition: "width 0.3s ease, border-radius 0.3s ease",
+      }}
+    >
+      {/* Mini bar when minimized */}
+      {minimized ? (
         <div
           onClick={() => setMinimized(false)}
           style={{
-            position: "fixed", bottom: pos.y, right: pos.x, zIndex: 1000,
-            width: "52px", height: "52px", borderRadius: "50%",
-            background: "linear-gradient(135deg, #f97b5c, #fbab72)",
-            boxShadow: "0 4px 20px rgba(249,123,92,0.4)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", fontSize: "1.4rem", transition: "transform 0.2s",
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "10px 16px",
+            background: "linear-gradient(135deg, rgba(254,243,199,0.8), rgba(252,213,197,0.8))",
           }}
-          onMouseEnter={e => (e.currentTarget.style.transform = "scale(1.1)")}
-          onMouseLeave={e => (e.currentTarget.style.transform = "scale(1)")}
-          title="Open Study Music"
-        >🎵</div>
-      )}
-
-      {/* Full widget — always mounted, hidden via display:none when minimized so music keeps playing */}
-      <div
-        onMouseDown={onMouseDown}
-        style={{
-          position: "fixed", bottom: pos.y, right: pos.x, zIndex: 1000,
-          width: "340px",
-          display: minimized ? "none" : "block",
-          background: "rgba(255, 245, 240, 0.92)",
-          backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-          border: "1px solid rgba(249,123,92,0.2)", borderRadius: "24px",
-          overflow: "hidden",
-          boxShadow: "0 8px 32px rgba(249,123,92,0.15), 0 2px 8px rgba(0,0,0,0.08)",
-          cursor: "grab", userSelect: "none",
-        }}
-      >
-        {/* Header */}
+        >
+          <span style={{ fontSize: "1.1rem" }}>🎵</span>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: "0.82rem", color: "#1e2a3a", flex: 1 }}>
+            {selected.emoji} {selected.label}
+          </p>
+          <span style={{ fontSize: "0.7rem", color: "#f97b5c" }}>▲</span>
+        </div>
+      ) : (
+        /* Full header */
         <div style={{
           padding: "12px 16px", display: "flex", alignItems: "center",
           justifyContent: "space-between",
@@ -101,30 +104,36 @@ export default function SpotifyWidget() {
             }} title="Minimize">—</button>
           </div>
         </div>
+      )}
 
-        {/* Playlist picker */}
-        {open && (
-          <div style={{
-            padding: "10px 14px", borderBottom: "1px solid rgba(249,123,92,0.15)",
-            display: "flex", gap: 6, flexWrap: "wrap" as const,
-            background: "rgba(255,249,246,0.7)",
-          }}>
-            {PLAYLISTS.map(p => (
-              <button key={p.id} onClick={() => setSelected(p)} style={{
-                padding: "5px 11px", borderRadius: 20,
-                border: "1px solid rgba(249,123,92,0.2)",
-                background: selected.id === p.id ? "rgba(249,123,92,0.18)" : "rgba(255,255,255,0.6)",
-                color: selected.id === p.id ? "#f97b5c" : "#4a5568",
-                cursor: "pointer", fontSize: "0.76rem",
-                fontWeight: selected.id === p.id ? 600 : 400,
-              }}>
-                {p.emoji} {p.label}
-              </button>
-            ))}
-          </div>
-        )}
+      {/* Playlist picker — only when expanded */}
+      {open && !minimized && (
+        <div style={{
+          padding: "10px 14px", borderBottom: "1px solid rgba(249,123,92,0.15)",
+          display: "flex", gap: 6, flexWrap: "wrap" as const,
+          background: "rgba(255,249,246,0.7)",
+        }}>
+          {PLAYLISTS.map(p => (
+            <button key={p.id} onClick={() => setSelected(p)} style={{
+              padding: "5px 11px", borderRadius: 20,
+              border: "1px solid rgba(249,123,92,0.2)",
+              background: selected.id === p.id ? "rgba(249,123,92,0.18)" : "rgba(255,255,255,0.6)",
+              color: selected.id === p.id ? "#f97b5c" : "#4a5568",
+              cursor: "pointer", fontSize: "0.76rem",
+              fontWeight: selected.id === p.id ? 600 : 400,
+            }}>
+              {p.emoji} {p.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-        {/* Spotify embed — always mounted */}
+      {/* Spotify embed — always mounted, just shrunk when minimized */}
+      <div style={{
+        height: minimized ? "0px" : "152px",
+        overflow: "hidden",
+        transition: "height 0.3s ease",
+      }}>
         <iframe
           src={`https://open.spotify.com/embed/playlist/${selected.id}?utm_source=generator&theme=0`}
           width="100%" height="152" frameBorder="0"
@@ -132,6 +141,6 @@ export default function SpotifyWidget() {
           loading="lazy" style={{ display: "block", cursor: "auto" }}
         />
       </div>
-    </>
+    </div>
   );
 }
