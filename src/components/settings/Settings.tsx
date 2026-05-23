@@ -6,8 +6,8 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 
 export default function Settings() {
-  const { user, logout } = useAuth() as any;
-  const username = (user as any)?.username || user?.displayName || user?.email?.split("@")[0] || "User";
+  const { user, logout, username: authUsername } = useAuth() as any;
+  const username = authUsername || user?.displayName || user?.email?.split("@")[0] || "User";
 
   const [activeTab, setActiveTab] = useState<"profile" | "account" | "appearance" | "notifications">("profile");
 

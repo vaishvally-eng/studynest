@@ -44,8 +44,8 @@ interface SharedNote {
 }
 
 export default function Friends() {
-  const { user } = useAuth();
-  const myUsername = (user as any)?.username || user?.displayName || user?.email?.split("@")[0] || "User";
+ const { user, username: myUsernameAuth } = useAuth() as any;
+const myUsername = myUsernameAuth || user?.displayName || user?.email?.split("@")[0] || "User";
   const navigate = useNavigate();
 
   const [view, setView] = useState<"list" | "chat" | "notes">("list");
