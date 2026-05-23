@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { db } from "../../firebase/firebase";
 import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
-import SpotifyWidget from "../spotify/SpotifyWidget";
+
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -230,10 +230,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Spotify */}
-      <div style={{ marginBottom: 24 }}>
-        <SpotifyWidget />
-      </div>
+      
 
       {/* Quick links */}
       <h3 style={{ margin: "0 0 14px", fontSize: "0.8rem", color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.1em" }}>Quick Access</h3>
