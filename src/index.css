@@ -1,5 +1,6 @@
 :root[data-theme="light"] {
-  --bg-primary: transparent;
+  --body-bg: linear-gradient(135deg, #fef3c7 0%, #fde8e1 50%, #fce7f3 100%);
+  --bg-primary: linear-gradient(135deg, #fef3c7 0%, #fde8e1 50%, #fce7f3 100%);
   --bg-secondary: #fff9f6;
   --bg-card: #ffffff;
   --bg-card-hover: #fff3ee;
@@ -21,6 +22,7 @@
 }
 
 :root[data-theme="dark"] {
+  --body-bg: #1a1118;
   --bg-primary: #1a1118;
   --bg-secondary: #201620;
   --bg-card: #2a1f28;
@@ -51,7 +53,7 @@
 
 body {
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde8e1 50%, #fce7f3 100%);
+  background: var(--body-bg);
   color: var(--text-primary);
   min-height: 100vh;
 }
