@@ -4,6 +4,7 @@ import type { User } from "firebase/auth";
 import { auth, provider, db } from "../firebase/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
+
 interface AuthContextType {
   user: User | null;
   username: string | null;
