@@ -108,7 +108,7 @@ export default function Alarm() {
   const currentTime = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
   const currentDate = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
-  const bg = "linear-gradient(135deg,#0f0f1a,#1a1a2e)";
+  const bg = "var(--bg-primary)";
   const inputStyle = {
     width: "100%", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
     borderRadius: "10px", color: "white", padding: "10px 14px", fontSize: "0.9rem",
