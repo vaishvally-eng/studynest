@@ -359,7 +359,7 @@ export default function Notes() {
   };
 
 
-  ctx.fillStyle = "#1e1e2e"; ctx.fillRect(0, 0, canvas.width, canvas.height); 
+ const bgGrad = "linear-gradient(135deg, #0f0f1a 0%, #1a0a2e 50%, #0d1117 100%)";
   const btn = (active = false, danger = false) => ({
     padding: "7px 14px", borderRadius: "10px", border: "none", fontSize: "0.82rem", fontWeight: "600" as const, cursor: "pointer",
     background: danger ? "rgba(255,100,100,0.25)" : active ? "linear-gradient(135deg, #667eea, #764ba2)" : "rgba(255,255,255,0.08)",
