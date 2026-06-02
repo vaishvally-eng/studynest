@@ -1,7 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { ref, set, onValue, off } from "firebase/database";
 import { rtdb } from "../../firebase/firebase";
-import Whiteboard from "./Whiteboard";
 
 const COLORS = ["#ffffff", "#a78bfa", "#f472b6", "#34d399", "#fbbf24", "#60a5fa", "#f87171", "#000000"];
 
