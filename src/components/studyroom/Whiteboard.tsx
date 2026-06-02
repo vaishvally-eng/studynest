@@ -19,7 +19,6 @@ export default function Whiteboard({ roomId }: { roomId: string }) {
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRemoteUpdate = useRef(false);
 
-  // Sync canvas from Firebase
   useEffect(() => {
     const wbRef = ref(rtdb, `rooms/${roomId}/whiteboard`);
     onValue(wbRef, snap => {
@@ -80,7 +79,6 @@ export default function Whiteboard({ roomId }: { roomId: string }) {
       ctx.globalCompositeOperation = "source-over";
       lastPos.current = pos;
     } else {
-      // Shape preview on overlay
       const ov = overlayRef.current!; const octx = ov.getContext("2d")!;
       octx.clearRect(0, 0, ov.width, ov.height);
       octx.strokeStyle = color; octx.lineWidth = size; octx.lineCap = "round";
@@ -134,7 +132,6 @@ export default function Whiteboard({ roomId }: { roomId: string }) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap", background: "rgba(0,0,0,0.2)" }}>
         {tools.map(([t, label]) => <button key={t} onClick={() => setTool(t)} style={btn(tool === t)}>{label}</button>)}
         <div style={{ width: 1, height: 24, background: "rgba(255,255,255,0.1)" }} />
@@ -146,7 +143,6 @@ export default function Whiteboard({ roomId }: { roomId: string }) {
         <button onClick={clearBoard} style={{ ...btn(false, true), marginLeft: "auto" }}>🗑️ Clear all</button>
       </div>
 
-      {/* Canvas area */}
       <div style={{ flex: 1, position: "relative", overflow: "hidden", background: "#1a1a2e" }}>
         <canvas ref={canvasRef} width={1600} height={900}
           style={{ width: "100%", height: "100%", cursor: tool === "eraser" ? "cell" : tool === "text" ? "text" : "crosshair", touchAction: "none" }}
