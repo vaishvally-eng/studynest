@@ -15,76 +15,128 @@ interface Note {
   updatedAt?: number;
 }
 
-type Tool = "pen" | "highlighter" | "eraser" | "shapes" | "text" | "lasso" | "ruler";
+type Tool = "pen" | "pencil" | "brushpen" | "highlighter" | "eraser" | "shapes" | "text" | "lasso" | "ruler";
 type Shape = "line" | "rect" | "circle";
 type Background = "blank" | "lined" | "grid" | "dotted";
 
 const PRESET_COLORS = ["#ffffff", "#a78bfa", "#f472b6", "#34d399", "#fbbf24", "#60a5fa", "#f87171", "#000000"];
 
-function DrawingCanvas({ backgroundImage, tool, color, brushSize, shape }: {
+// ─── DrawingCanvas (used for PDF pages) ───────────────────────────────────────
+// Two-layer design:
+//   bgCanvas  – holds the PDF page image, never touched by eraser
+//   inkCanvas – all strokes live here; eraser only clears this layer
+function DrawingCanvas({
+  backgroundImage, tool, color, brushSize, shape,
+}: {
   backgroundImage?: string;
   tool: Tool; color: string; brushSize: number; shape: Shape;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
-  const [drawing, setDrawing] = useState(false);
-  const lastPos = useRef<{ x: number; y: number } | null>(null);
-  const startPos = useRef<{ x: number; y: number } | null>(null);
-  const initialized = useRef(false);
+  const bgRef  = useRef<HTMLCanvasElement>(null);
+  const inkRef = useRef<HTMLCanvasElement>(null);
+  const ovRef  = useRef<HTMLCanvasElement>(null);
 
+  const [drawing, setDrawing] = useState(false);
+  const lastPos  = useRef<{ x: number; y: number } | null>(null);
+  const startPos = useRef<{ x: number; y: number } | null>(null);
+  const bgLoaded = useRef(false);
+
+  // Load background image onto bgCanvas once
   useEffect(() => {
-    if (initialized.current) return;
-    const canvas = canvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-    if (backgroundImage) {
-      const img = new Image();
-      img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); initialized.current = true; };
-      img.src = backgroundImage;
-    }
+    if (bgLoaded.current || !backgroundImage) return;
+    const canvas = bgRef.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      bgLoaded.current = true;
+    };
+    img.src = backgroundImage;
   }, [backgroundImage]);
 
   const getPos = (e: React.MouseEvent | React.TouchEvent) => {
-    const canvas = canvasRef.current!;
+    const canvas = inkRef.current!;
     const rect = canvas.getBoundingClientRect();
     const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
     if ("touches" in e) return { x: (e.touches[0].clientX - rect.left) * sx, y: (e.touches[0].clientY - rect.top) * sy };
     return { x: ((e as React.MouseEvent).clientX - rect.left) * sx, y: ((e as React.MouseEvent).clientY - rect.top) * sy };
   };
 
+  const applyStroke = (
+    ctx: CanvasRenderingContext2D,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    t: Tool, c: string, size: number
+  ) => {
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (t === "pen") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = size;
+      ctx.strokeStyle = c;
+    } else if (t === "pencil") {
+      // Pencil: thin, semi-transparent, slightly noisy feel via low alpha repeated strokes
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = Math.max(1, size * 0.7);
+      ctx.strokeStyle = c;
+    } else if (t === "brushpen") {
+      // Brush pen: thick, tapered by using a larger lineWidth and soft alpha
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = size * 2.5;
+      ctx.strokeStyle = c;
+    } else if (t === "highlighter") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.28;
+      ctx.lineWidth = size * 5;
+      ctx.strokeStyle = c;
+    } else if (t === "eraser") {
+      // Erase ONLY on the ink canvas — background is untouched
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = size * 4;
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  };
+
   const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     setDrawing(true);
-    lastPos.current = getPos(e);
-    startPos.current = getPos(e);
+    const pos = getPos(e);
+    lastPos.current = pos;
+    startPos.current = pos;
   };
 
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     if (!drawing) return;
     const pos = getPos(e);
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    const ink = inkRef.current!;
+    const ctx = ink.getContext("2d")!;
 
-    if (["pen", "highlighter", "eraser"].includes(tool)) {
-      ctx.beginPath();
-      ctx.moveTo(lastPos.current!.x, lastPos.current!.y);
-      ctx.lineTo(pos.x, pos.y);
-      if (tool === "eraser") { ctx.globalCompositeOperation = "destination-out"; ctx.lineWidth = 20; }
-      else if (tool === "highlighter") { ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 0.3; ctx.lineWidth = 18; ctx.strokeStyle = color; }
-      else { ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1; ctx.lineWidth = brushSize; ctx.strokeStyle = color; }
-      ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+    if (["pen", "pencil", "brushpen", "highlighter", "eraser"].includes(tool)) {
+      applyStroke(ctx, lastPos.current!, pos, tool, color, brushSize);
       lastPos.current = pos;
     }
 
     if (tool === "shapes" || tool === "ruler") {
-      const ov = overlayRef.current!; const octx = ov.getContext("2d")!;
+      const ov = ovRef.current!;
+      const octx = ov.getContext("2d")!;
       octx.clearRect(0, 0, ov.width, ov.height);
-      octx.strokeStyle = color; octx.lineWidth = brushSize; octx.lineCap = "round";
-      const [sx, sy] = [startPos.current!.x, startPos.current!.y];
-      if (tool === "ruler" || shape === "line") { octx.beginPath(); octx.moveTo(sx, sy); octx.lineTo(pos.x, pos.y); octx.stroke(); }
-      else if (shape === "rect") octx.strokeRect(sx, sy, pos.x - sx, pos.y - sy);
-      else { const rx = Math.abs(pos.x - sx) / 2, ry = Math.abs(pos.y - sy) / 2; octx.beginPath(); octx.ellipse(sx + (pos.x - sx) / 2, sy + (pos.y - sy) / 2, rx, ry, 0, 0, Math.PI * 2); octx.stroke(); }
+      octx.strokeStyle = color;
+      octx.lineWidth = brushSize;
+      octx.lineCap = "round";
+      octx.globalAlpha = 1;
+      const { x: sx, y: sy } = startPos.current!;
+      drawShape(octx, tool, shape, sx, sy, pos.x, pos.y);
     }
   };
 
@@ -92,34 +144,64 @@ function DrawingCanvas({ backgroundImage, tool, color, brushSize, shape }: {
     if (!drawing) return;
     setDrawing(false);
     const pos = getPos(e);
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    const ink = inkRef.current!;
+    const ctx = ink.getContext("2d")!;
 
     if (tool === "shapes" || tool === "ruler") {
-      overlayRef.current!.getContext("2d")!.clearRect(0, 0, 1200, 1600);
-      ctx.strokeStyle = color; ctx.lineWidth = brushSize; ctx.lineCap = "round";
-      const [sx, sy] = [startPos.current!.x, startPos.current!.y];
-      if (tool === "ruler" || shape === "line") { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(pos.x, pos.y); ctx.stroke(); }
-      else if (shape === "rect") ctx.strokeRect(sx, sy, pos.x - sx, pos.y - sy);
-      else { const rx = Math.abs(pos.x - sx) / 2, ry = Math.abs(pos.y - sy) / 2; ctx.beginPath(); ctx.ellipse(sx + (pos.x - sx) / 2, sy + (pos.y - sy) / 2, rx, ry, 0, 0, Math.PI * 2); ctx.stroke(); }
+      ovRef.current!.getContext("2d")!.clearRect(0, 0, ink.width, ink.height);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = "round";
+      ctx.globalAlpha = 1;
+      const { x: sx, y: sy } = startPos.current!;
+      drawShape(ctx, tool, shape, sx, sy, pos.x, pos.y);
     }
     lastPos.current = null;
   };
 
+  const W = 1200, H = 1600;
   return (
     <div style={{ position: "relative", width: "100%", marginBottom: "12px" }}>
-      <canvas ref={canvasRef} width={1200} height={1600}
-        style={{ width: "100%", display: "block", borderRadius: "8px", cursor: tool === "eraser" ? "cell" : "crosshair", touchAction: "none", boxShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
+      {/* Layer 1: PDF background – never erased */}
+      <canvas ref={bgRef} width={W} height={H}
+        style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", borderRadius: "8px", pointerEvents: "none" }}
+      />
+      {/* Layer 2: ink strokes */}
+      <canvas ref={inkRef} width={W} height={H}
+        style={{ position: "relative", width: "100%", display: "block", borderRadius: "8px", cursor: tool === "eraser" ? "cell" : "crosshair", touchAction: "none", boxShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
         onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
         onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw}
       />
-      <canvas ref={overlayRef} width={1200} height={1600}
+      {/* Layer 3: shape preview overlay */}
+      <canvas ref={ovRef} width={W} height={H}
         style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", borderRadius: "8px" }}
       />
     </div>
   );
 }
 
+// ─── Shared shape helper ────────────────────────────────────────────────────────
+function drawShape(
+  ctx: CanvasRenderingContext2D,
+  tool: Tool, shape: Shape,
+  sx: number, sy: number, ex: number, ey: number
+) {
+  ctx.beginPath();
+  if (tool === "ruler" || shape === "line") {
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+  } else if (shape === "rect") {
+    ctx.strokeRect(sx, sy, ex - sx, ey - sy);
+  } else if (shape === "circle") {
+    const rx = Math.abs(ex - sx) / 2;
+    const ry = Math.abs(ey - sy) / 2;
+    ctx.ellipse(sx + (ex - sx) / 2, sy + (ey - sy) / 2, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+// ─── Main Notes component ───────────────────────────────────────────────────────
 export default function Notes() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -130,15 +212,18 @@ export default function Notes() {
   const [body, setBody] = useState("");
   const [saved, setSaved] = useState(true);
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
+  // Handwritten canvas refs (two-layer same as PDF)
+  const bgCanvasRef  = useRef<HTMLCanvasElement>(null); // background pattern
+  const inkCanvasRef = useRef<HTMLCanvasElement>(null); // strokes
+  const overlayRef   = useRef<HTMLCanvasElement>(null); // shape preview
+
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState("#a78bfa");
   const [brushSize, setBrushSize] = useState(3);
   const [shape, setShape] = useState<Shape>("line");
   const [background, setBackground] = useState<Background>("blank");
   const [drawing, setDrawing] = useState(false);
-  const lastPos = useRef<{ x: number; y: number } | null>(null);
+  const lastPos  = useRef<{ x: number; y: number } | null>(null);
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const [history, setHistory] = useState<ImageData[]>([]);
   const [redoStack, setRedoStack] = useState<ImageData[]>([]);
@@ -164,23 +249,36 @@ export default function Notes() {
     return () => clearTimeout(t);
   }, [body, title, saved, view]);
 
+  // ── Handwritten background ──────────────────────────────────────────────────
   const drawBackground = () => {
-    const canvas = canvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-    ctx.fillStyle = "#1e1e2e"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1;
-    if (background === "lined") { for (let y = 40; y < canvas.height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); } }
-    else if (background === "grid") {
+    const canvas = bgCanvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#1e1e2e";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "rgba(255,255,255,0.07)";
+    ctx.lineWidth = 1;
+    if (background === "lined") {
+      for (let y = 40; y < canvas.height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+    } else if (background === "grid") {
       for (let x = 40; x < canvas.width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
       for (let y = 40; y < canvas.height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
     } else if (background === "dotted") {
       for (let x = 40; x < canvas.width; x += 40)
-        for (let y = 40; y < canvas.height; y += 40) { ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fill(); }
+        for (let y = 40; y < canvas.height; y += 40) {
+          ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fill();
+        }
     }
   };
 
-  const getPos = (e: React.MouseEvent | React.TouchEvent) => {
-    const canvas = canvasRef.current!;
+  useEffect(() => {
+    if (view === "handwritten") {
+      setTimeout(() => drawBackground(), 100);
+    }
+  }, [background, view]);
+
+  const getHWPos = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = inkCanvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
     if ("touches" in e) return { x: (e.touches[0].clientX - rect.left) * sx, y: (e.touches[0].clientY - rect.top) * sy };
@@ -188,14 +286,14 @@ export default function Notes() {
   };
 
   const pushHistory = () => {
-    const canvas = canvasRef.current!;
+    const canvas = inkCanvasRef.current!;
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
     setHistory(h => [...h.slice(-30), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
     setRedoStack([]);
   };
 
   const undo = () => {
-    const canvas = canvasRef.current!;
+    const canvas = inkCanvasRef.current!;
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
     if (!history.length) return;
     setRedoStack(r => [ctx.getImageData(0, 0, canvas.width, canvas.height), ...r]);
@@ -204,7 +302,7 @@ export default function Notes() {
   };
 
   const redo = () => {
-    const canvas = canvasRef.current!;
+    const canvas = inkCanvasRef.current!;
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
     if (!redoStack.length) return;
     setHistory(h => [...h, ctx.getImageData(0, 0, canvas.width, canvas.height)]);
@@ -212,66 +310,115 @@ export default function Notes() {
     setRedoStack(r => r.slice(1));
   };
 
+  const applyHWStroke = (
+    from: { x: number; y: number },
+    to: { x: number; y: number }
+  ) => {
+    const ink = inkCanvasRef.current!;
+    const ctx = ink.getContext("2d", { willReadFrequently: true })!;
+
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (tool === "pen") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = brushSize;
+      ctx.strokeStyle = color;
+    } else if (tool === "pencil") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = Math.max(1, brushSize * 0.65);
+      ctx.strokeStyle = color;
+    } else if (tool === "brushpen") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = brushSize * 2.5;
+      ctx.strokeStyle = color;
+    } else if (tool === "highlighter") {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.28;
+      ctx.lineWidth = brushSize * 5;
+      ctx.strokeStyle = color;
+    } else if (tool === "eraser") {
+      // Erase only on ink canvas — background layer is safe
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = brushSize * 4;
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  };
+
   const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
-    const pos = getPos(e); pushHistory(); setDrawing(true);
-    lastPos.current = pos; startPos.current = pos;
+    const pos = getHWPos(e);
+    pushHistory();
+    setDrawing(true);
+    lastPos.current = pos;
+    startPos.current = pos;
     if (tool === "text") { setTextPos(pos); return; }
     if (tool === "lasso") setLassoRect(null);
   };
 
   const drawOnCanvas = (e: React.MouseEvent | React.TouchEvent) => {
     if (!drawing) return;
-    const pos = getPos(e);
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-    if (["pen", "highlighter", "eraser"].includes(tool)) {
-      ctx.beginPath(); ctx.moveTo(lastPos.current!.x, lastPos.current!.y); ctx.lineTo(pos.x, pos.y);
-      if (tool === "eraser") { ctx.globalCompositeOperation = "destination-out"; ctx.lineWidth = 20; }
-      else if (tool === "highlighter") { ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 0.3; ctx.lineWidth = 18; ctx.strokeStyle = color; }
-      else { ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1; ctx.lineWidth = brushSize; ctx.strokeStyle = color; }
-      ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+    const pos = getHWPos(e);
+
+    if (["pen", "pencil", "brushpen", "highlighter", "eraser"].includes(tool)) {
+      applyHWStroke(lastPos.current!, pos);
       lastPos.current = pos;
     }
+
     if (tool === "shapes" || tool === "ruler") {
-      const ov = overlayRef.current!; const octx = ov.getContext("2d")!;
+      const ov = overlayRef.current!;
+      const octx = ov.getContext("2d")!;
       octx.clearRect(0, 0, ov.width, ov.height);
-      octx.strokeStyle = color; octx.lineWidth = brushSize; octx.lineCap = "round";
-      const [sx, sy] = [startPos.current!.x, startPos.current!.y];
-      if (tool === "ruler" || shape === "line") { octx.beginPath(); octx.moveTo(sx, sy); octx.lineTo(pos.x, pos.y); octx.stroke(); }
-      else if (shape === "rect") octx.strokeRect(sx, sy, pos.x - sx, pos.y - sy);
-      else { const rx = Math.abs(pos.x - sx) / 2, ry = Math.abs(pos.y - sy) / 2; octx.beginPath(); octx.ellipse(sx + (pos.x - sx) / 2, sy + (pos.y - sy) / 2, rx, ry, 0, 0, Math.PI * 2); octx.stroke(); }
+      octx.strokeStyle = color;
+      octx.lineWidth = brushSize;
+      octx.lineCap = "round";
+      octx.globalAlpha = 1;
+      drawShape(octx, tool, shape, startPos.current!.x, startPos.current!.y, pos.x, pos.y);
     }
+
     if (tool === "lasso") {
-      const [sx, sy] = [startPos.current!.x, startPos.current!.y];
+      const { x: sx, y: sy } = startPos.current!;
       setLassoRect({ x: Math.min(sx, pos.x), y: Math.min(sy, pos.y), w: Math.abs(pos.x - sx), h: Math.abs(pos.y - sy) });
     }
   };
 
   const stopDrawOnCanvas = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!drawing) return; setDrawing(false);
-    const pos = getPos(e);
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    if (!drawing) return;
+    setDrawing(false);
+    const pos = getHWPos(e);
+    const ink = inkCanvasRef.current!;
+    const ctx = ink.getContext("2d", { willReadFrequently: true })!;
+
     if (tool === "shapes" || tool === "ruler") {
-      overlayRef.current!.getContext("2d")!.clearRect(0, 0, 1600, 1000);
-      ctx.strokeStyle = color; ctx.lineWidth = brushSize; ctx.lineCap = "round";
-      const [sx, sy] = [startPos.current!.x, startPos.current!.y];
-      if (tool === "ruler" || shape === "line") { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(pos.x, pos.y); ctx.stroke(); }
-      else if (shape === "rect") ctx.strokeRect(sx, sy, pos.x - sx, pos.y - sy);
-      else { const rx = Math.abs(pos.x - sx) / 2, ry = Math.abs(pos.y - sy) / 2; ctx.beginPath(); ctx.ellipse(sx + (pos.x - sx) / 2, sy + (pos.y - sy) / 2, rx, ry, 0, 0, Math.PI * 2); ctx.stroke(); }
+      overlayRef.current!.getContext("2d")!.clearRect(0, 0, ink.width, ink.height);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = brushSize;
+      ctx.lineCap = "round";
+      ctx.globalAlpha = 1;
+      drawShape(ctx, tool, shape, startPos.current!.x, startPos.current!.y, pos.x, pos.y);
     }
     lastPos.current = null;
   };
 
   const commitText = () => {
     if (!textInput.trim() || !textPos) return;
-    const ctx = canvasRef.current!.getContext("2d", { willReadFrequently: true })!;
-    ctx.font = `${brushSize * 6}px 'Segoe UI'`; ctx.fillStyle = color;
+    const ctx = inkCanvasRef.current!.getContext("2d", { willReadFrequently: true })!;
+    ctx.font = `${brushSize * 6}px 'Segoe UI'`;
+    ctx.fillStyle = color;
     ctx.fillText(textInput, textPos.x, textPos.y);
     setTextInput(""); setTextPos(null);
   };
 
+  // ── Save helpers ────────────────────────────────────────────────────────────
   const saveTyped = async (auto = false) => {
     if (!user || !title.trim()) return;
     if (activeNote || saveTypedRef.current) {
@@ -288,9 +435,20 @@ export default function Notes() {
 
   const saveCanvas = async () => {
     if (!title.trim()) { alert("Add a title first!"); return; }
-    const canvasData = canvasRef.current!.toDataURL("image/jpeg", 0.6);
-    if (activeNote) await updateDoc(doc(db, "notes", activeNote.id), { canvasData, title, updatedAt: Date.now() });
-    else { const ref = await addDoc(collection(db, "notes"), { title, uid: user!.uid, type: "handwritten", canvasData, updatedAt: Date.now() }); setActiveNote({ id: ref.id, title, uid: user!.uid, type: "handwritten", canvasData }); }
+    // Composite bg + ink before saving
+    const composite = document.createElement("canvas");
+    composite.width = 1600; composite.height = 1000;
+    const cctx = composite.getContext("2d")!;
+    cctx.drawImage(bgCanvasRef.current!, 0, 0);
+    cctx.drawImage(inkCanvasRef.current!, 0, 0);
+    const canvasData = composite.toDataURL("image/jpeg", 0.6);
+
+    if (activeNote)
+      await updateDoc(doc(db, "notes", activeNote.id), { canvasData, title, updatedAt: Date.now() });
+    else {
+      const ref = await addDoc(collection(db, "notes"), { title, uid: user!.uid, type: "handwritten", canvasData, updatedAt: Date.now() });
+      setActiveNote({ id: ref.id, title, uid: user!.uid, type: "handwritten", canvasData });
+    }
     alert("Saved! ✅");
   };
 
@@ -306,7 +464,7 @@ export default function Notes() {
         setActiveNote({ id: ref.id, title, uid: user.uid, type: "pdf", pdfName });
       }
       alert("Saved! ✅ Note: Re-import the PDF next time to annotate again.");
-    } catch (err) {
+    } catch {
       alert("Save failed. Try again.");
     }
     setPdfSaving(false);
@@ -318,21 +476,19 @@ export default function Notes() {
     setActiveNote(note); setTitle(note.title); setBody(note.body || ""); setView(note.type);
     if (note.type === "handwritten" && note.canvasData) {
       setTimeout(() => {
-        const canvas = canvasRef.current; if (!canvas) return;
+        drawBackground();
         const img = new Image();
-        img.onload = () => canvas.getContext("2d", { willReadFrequently: true })?.drawImage(img, 0, 0);
+        img.onload = () => inkCanvasRef.current?.getContext("2d", { willReadFrequently: true })?.drawImage(img, 0, 0);
         img.src = note.canvasData!;
       }, 400);
     }
-    if (note.type === "pdf") {
-      setPdfName(note.pdfName || "");
-      setPdfPages([]);
-    }
+    if (note.type === "pdf") { setPdfName(note.pdfName || ""); setPdfPages([]); }
   };
 
   const newNote = (type: "typed" | "handwritten" | "pdf") => {
-    setActiveNote(null); saveTypedRef.current = null; setTitle(""); setBody(""); setPdfPages([]); setPdfName(""); setView(type); setSaved(true);
-    setTimeout(() => { if (type === "handwritten") drawBackground(); }, 150);
+    setActiveNote(null); saveTypedRef.current = null;
+    setTitle(""); setBody(""); setPdfPages([]); setPdfName(""); setView(type); setSaved(true);
+    if (type === "handwritten") setTimeout(() => drawBackground(), 150);
   };
 
   const handlePDF = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -353,31 +509,48 @@ export default function Notes() {
       }
       setPdfPages(pages);
       if (!title) setTitle(file.name.replace(".pdf", ""));
-    } catch (err) {
+    } catch {
       alert("Failed to load PDF. Please try another file.");
     }
   };
 
-
- const bgGrad = "linear-gradient(135deg, #0f0f1a 0%, #1a0a2e 50%, #0d1117 100%)";
+  // ── Styles ──────────────────────────────────────────────────────────────────
+  const bgGrad = "linear-gradient(135deg, #0f0f1a 0%, #1a0a2e 50%, #0d1117 100%)";
   const btn = (active = false, danger = false) => ({
     padding: "7px 14px", borderRadius: "10px", border: "none", fontSize: "0.82rem", fontWeight: "600" as const, cursor: "pointer",
     background: danger ? "rgba(255,100,100,0.25)" : active ? "linear-gradient(135deg, #667eea, #764ba2)" : "rgba(255,255,255,0.08)",
     color: danger ? "#ff6b6b" : "white",
   });
 
+  const TOOL_LABELS: [Tool, string][] = [
+    ["pen", "🖊️ Pen"],
+    ["pencil", "✏️ Pencil"],
+    ["brushpen", "🖌️ Brush"],
+    ["highlighter", "🖍️ Hi-lite"],
+    ["eraser", "⬜ Eraser"],
+    ["shapes", "📐 Shape"],
+    ["ruler", "📏 Ruler"],
+    ["text", "🔤 Text"],
+    ["lasso", "🔲 Select"],
+  ];
+
   const Toolbar = () => (
     <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", flexWrap: "wrap", background: "rgba(0,0,0,0.4)" }}>
-      {([["pen", "🖊️ Pen"], ["highlighter", "🖍️ Hi-lite"], ["eraser", "⬜ Eraser"], ["shapes", "📐 Shape"], ["ruler", "📏 Ruler"], ["text", "🔤 Text"], ["lasso", "🔲 Select"]] as [Tool, string][]).map(([t, label]) => (
+      {TOOL_LABELS.map(([t, label]) => (
         <button key={t} onClick={() => setTool(t)} style={btn(tool === t)}>{label}</button>
       ))}
       <div style={{ width: "1px", height: "26px", background: "rgba(255,255,255,0.12)" }} />
       {tool === "shapes" && (["line", "rect", "circle"] as Shape[]).map(s => (
-        <button key={s} onClick={() => setShape(s)} style={btn(shape === s)}>{s === "line" ? "╱" : s === "rect" ? "▭" : "○"}</button>
+        <button key={s} onClick={() => setShape(s)} style={btn(shape === s)}>
+          {s === "line" ? "╱ Line" : s === "rect" ? "▭ Rect" : "○ Circle"}
+        </button>
       ))}
       <input type="range" min={1} max={14} value={brushSize} onChange={e => setBrushSize(+e.target.value)} style={{ width: "70px", accentColor: "#a78bfa" }} />
       <div style={{ display: "flex", gap: "4px" }}>
-        {PRESET_COLORS.map(c => <div key={c} onClick={() => setColor(c)} style={{ width: "20px", height: "20px", borderRadius: "50%", background: c, cursor: "pointer", border: color === c ? "2px solid white" : "2px solid transparent" }} />)}
+        {PRESET_COLORS.map(c => (
+          <div key={c} onClick={() => setColor(c)}
+            style={{ width: "20px", height: "20px", borderRadius: "50%", background: c, cursor: "pointer", border: color === c ? "2px solid white" : "2px solid transparent" }} />
+        ))}
       </div>
       <input type="color" value={color} onChange={e => setColor(e.target.value)} style={{ width: "26px", height: "26px", borderRadius: "50%", border: "none", cursor: "pointer" }} />
       <div style={{ width: "1px", height: "26px", background: "rgba(255,255,255,0.12)" }} />
@@ -386,6 +559,7 @@ export default function Notes() {
     </div>
   );
 
+  // ── Views ────────────────────────────────────────────────────────────────────
   if (view === "typed") return (
     <div style={{ minHeight: "100vh", background: bgGrad, color: "white", fontFamily: "'Segoe UI', sans-serif", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 28px", borderBottom: "1px solid rgba(255,255,255,0.08)", gap: "12px" }}>
@@ -394,8 +568,10 @@ export default function Notes() {
         <button onClick={() => saveTyped(false)} style={btn(true)}>💾 Save</button>
       </div>
       <div style={{ padding: "32px 48px", flex: 1, display: "flex", flexDirection: "column" }}>
-        <input value={title} onChange={e => { setTitle(e.target.value); setSaved(false); }} placeholder="Untitled Note" style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.15)", color: "white", fontSize: "2rem", fontWeight: "bold", outline: "none", marginBottom: "24px", paddingBottom: "12px", width: "100%", boxSizing: "border-box" as const }} />
-        <textarea value={body} onChange={e => { setBody(e.target.value); setSaved(false); }} placeholder="Start writing..." style={{ flex: 1, minHeight: "65vh", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", color: "white", fontSize: "1.05rem", outline: "none", padding: "24px", resize: "none", lineHeight: "1.9", boxSizing: "border-box" as const, fontFamily: "'Segoe UI', sans-serif" }} />
+        <input value={title} onChange={e => { setTitle(e.target.value); setSaved(false); }} placeholder="Untitled Note"
+          style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.15)", color: "white", fontSize: "2rem", fontWeight: "bold", outline: "none", marginBottom: "24px", paddingBottom: "12px", width: "100%", boxSizing: "border-box" as const }} />
+        <textarea value={body} onChange={e => { setBody(e.target.value); setSaved(false); }} placeholder="Start writing..."
+          style={{ flex: 1, minHeight: "65vh", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", color: "white", fontSize: "1.05rem", outline: "none", padding: "24px", resize: "none", lineHeight: "1.9", boxSizing: "border-box" as const, fontFamily: "'Segoe UI', sans-serif" }} />
       </div>
     </div>
   );
@@ -404,23 +580,44 @@ export default function Notes() {
     <div style={{ minHeight: "100vh", background: bgGrad, color: "white", fontFamily: "'Segoe UI', sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.3)", flexWrap: "wrap" }}>
         <button onClick={() => setView("list")} style={btn()}>←</button>
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Untitled" style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.2)", color: "white", fontSize: "1rem", outline: "none", width: "140px" }} />
-        {(["blank", "lined", "grid", "dotted"] as Background[]).map(b => <button key={b} onClick={() => { if (!activeNote) setBackground(b); }} style={btn(background === b)}>{b}</button>)}
-        <button onClick={() => { pushHistory(); drawBackground(); }} style={btn(false, true)}>🗑️ Clear</button>
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Untitled"
+          style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.2)", color: "white", fontSize: "1rem", outline: "none", width: "140px" }} />
+        {(["blank", "lined", "grid", "dotted"] as Background[]).map(b => (
+          <button key={b} onClick={() => setBackground(b)} style={btn(background === b)}>{b}</button>
+        ))}
+        <button onClick={() => {
+          pushHistory();
+          inkCanvasRef.current?.getContext("2d", { willReadFrequently: true })?.clearRect(0, 0, 1600, 1000);
+          drawBackground();
+        }} style={btn(false, true)}>🗑️ Clear</button>
         <button onClick={saveCanvas} style={btn(true)}>💾 Save</button>
       </div>
       <Toolbar />
       <div style={{ position: "relative", margin: "16px auto", width: "98%" }}>
-        <canvas ref={canvasRef} width={1600} height={1000}
-          style={{ width: "100%", borderRadius: "12px", display: "block", cursor: "crosshair", touchAction: "none" }}
+        {/* BG layer: pattern */}
+        <canvas ref={bgCanvasRef} width={1600} height={1000}
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", borderRadius: "12px" }} />
+        {/* Ink layer: strokes */}
+        <canvas ref={inkCanvasRef} width={1600} height={1000}
+          style={{ position: "relative", width: "100%", borderRadius: "12px", display: "block", cursor: tool === "eraser" ? "cell" : "crosshair", touchAction: "none" }}
           onMouseDown={startDraw} onMouseMove={drawOnCanvas} onMouseUp={stopDrawOnCanvas} onMouseLeave={stopDrawOnCanvas}
           onTouchStart={startDraw} onTouchMove={drawOnCanvas} onTouchEnd={stopDrawOnCanvas}
         />
-        <canvas ref={overlayRef} width={1600} height={1000} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", borderRadius: "12px" }} />
-        {lassoRect && <div style={{ position: "absolute", border: "2px dashed #a78bfa", borderRadius: "4px", pointerEvents: "none", left: `${(lassoRect.x / 1600) * 100}%`, top: `${(lassoRect.y / 1000) * 100}%`, width: `${(lassoRect.w / 1600) * 100}%`, height: `${(lassoRect.h / 1000) * 100}%` }} />}
-        {textPos && <div style={{ position: "absolute", left: `${(textPos.x / 1600) * 100}%`, top: `${(textPos.y / 1000) * 100}%` }}>
-          <input autoFocus value={textInput} onChange={e => setTextInput(e.target.value)} onKeyDown={e => e.key === "Enter" && commitText()} placeholder="Type, press Enter" style={{ background: "rgba(0,0,0,0.7)", border: "1px solid #a78bfa", borderRadius: "6px", color, fontSize: `${brushSize * 6}px`, outline: "none", padding: "4px 8px", minWidth: "180px" }} />
-        </div>}
+        {/* Overlay: shape preview */}
+        <canvas ref={overlayRef} width={1600} height={1000}
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", borderRadius: "12px" }} />
+        {lassoRect && (
+          <div style={{ position: "absolute", border: "2px dashed #a78bfa", borderRadius: "4px", pointerEvents: "none",
+            left: `${(lassoRect.x / 1600) * 100}%`, top: `${(lassoRect.y / 1000) * 100}%`,
+            width: `${(lassoRect.w / 1600) * 100}%`, height: `${(lassoRect.h / 1000) * 100}%` }} />
+        )}
+        {textPos && (
+          <div style={{ position: "absolute", left: `${(textPos.x / 1600) * 100}%`, top: `${(textPos.y / 1000) * 100}%` }}>
+            <input autoFocus value={textInput} onChange={e => setTextInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && commitText()} placeholder="Type, press Enter"
+              style={{ background: "rgba(0,0,0,0.7)", border: "1px solid #a78bfa", borderRadius: "6px", color, fontSize: `${brushSize * 6}px`, outline: "none", padding: "4px 8px", minWidth: "180px" }} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -429,7 +626,8 @@ export default function Notes() {
     <div style={{ minHeight: "100vh", background: bgGrad, color: "white", fontFamily: "'Segoe UI', sans-serif" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(0,0,0,0.3)", flexWrap: "wrap" }}>
         <button onClick={() => setView("list")} style={btn()}>← Back</button>
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="PDF title..." style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.2)", color: "white", fontSize: "1rem", outline: "none", width: "160px" }} />
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="PDF title..."
+          style={{ background: "transparent", border: "none", borderBottom: "1px solid rgba(255,255,255,0.2)", color: "white", fontSize: "1rem", outline: "none", width: "160px" }} />
         {pdfPages.length > 0 && <span style={{ color: "rgba(255,255,255,0.4)", fontSize: "0.85rem" }}>{pdfPages.length} pages • {pdfName}</span>}
         <button onClick={savePDF} style={btn(true)} disabled={pdfSaving}>{pdfSaving ? "Saving..." : "💾 Save"}</button>
       </div>
@@ -464,6 +662,7 @@ export default function Notes() {
     </div>
   );
 
+  // ── Note list ────────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: "100vh", background: bgGrad, color: "white", fontFamily: "'Segoe UI', sans-serif", padding: "32px" }}>
       <button onClick={() => navigate("/")} style={{ ...btn(), marginBottom: "20px" }}>← Dashboard</button>
