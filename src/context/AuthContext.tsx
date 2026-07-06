@@ -1,13 +1,18 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import {
+  onAuthStateChanged,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+} from "firebase/auth";
 import type { User } from "firebase/auth";
 import { auth, provider, db } from "../firebase/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
-
 interface AuthContextType {
   user: User | null;
   username: string | null;
+  loading: boolean;
   login: () => void;
   logout: () => void;
   setUsername: (name: string) => Promise<void>;
@@ -18,18 +23,29 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [username, setUsernameState] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async (u) => {
+    // Catch the result of a redirect sign-in, if one just happened
+    getRedirectResult(auth).catch((err) => {
+      console.error("Redirect sign-in error:", err);
+    });
+
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
         const snap = await getDoc(doc(db, "users", u.uid));
-        if (snap.exists()) setUsernameState(snap.data().username);
+        if (snap.exists()) setUsernameState(snap.data().username as string);
+      } else {
+        setUsernameState(null);
       }
+      setLoading(false);
     });
+
+    return unsubscribe;
   }, []);
 
-  const login = () => signInWithPopup(auth, provider);
+  const login = () => signInWithRedirect(auth, provider);
   const logout = () => signOut(auth);
 
   const setUsername = async (name: string) => {
@@ -39,7 +55,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, username, login, logout, setUsername }}>
+    <AuthContext.Provider
+      value={{ user, username, loading, login, logout, setUsername }}
+    >
       {children}
     </AuthContext.Provider>
   );
