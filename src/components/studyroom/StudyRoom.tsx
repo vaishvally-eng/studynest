@@ -405,6 +405,414 @@ export default function StudyRoom() {
           </div>
         </div>
 
+
         {/* Create modal */}
         {showCreate && (
-          <div style={{
+          <div
+            onClick={() => setShowCreate(false)}
+            style={{
+              position: "fixed", inset: 0, background: "rgba(20,10,30,0.55)",
+              backdropFilter: "blur(4px)", display: "flex", alignItems: "center",
+              justifyContent: "center", zIndex: 100,
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: "var(--bg-card)", borderRadius: 24, padding: "32px 28px",
+                width: 360, boxShadow: "0 24px 64px rgba(0,0,0,0.35)",
+                border: "1px solid var(--border)", fontFamily: "'Segoe UI',sans-serif",
+              }}
+            >
+              <h3 style={{ margin: "0 0 18px", fontSize: "1.3rem", color: "var(--text-primary)", fontWeight: 700 }}>
+                Host a Study Room
+              </h3>
+              <input
+                value={newRoomName}
+                onChange={e => setNewRoomName(e.target.value)}
+                placeholder="Room name..."
+                style={{
+                  width: "100%", padding: "12px 16px", borderRadius: 14, border: "1px solid var(--border)",
+                  background: "var(--bg-secondary)", color: "var(--text-primary)", fontSize: "0.95rem",
+                  outline: "none", marginBottom: 16, boxSizing: "border-box",
+                }}
+              />
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 22, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={newRoomPrivate}
+                  onChange={e => setNewRoomPrivate(e.target.checked)}
+                />
+                <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                  Private (join by code only)
+                </span>
+              </label>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setShowCreate(false)}
+                  style={{
+                    flex: 1, padding: "12px", borderRadius: 14, border: "1px solid var(--border)",
+                    background: "var(--bg-secondary)", color: "var(--text-secondary)", fontWeight: 600,
+                    cursor: "pointer", fontSize: "0.88rem",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={createRoom}
+                  style={{
+                    flex: 1, padding: "12px", borderRadius: 14, border: "none",
+                    background: "linear-gradient(135deg,#f97b5c,#f4a26a)", color: "white", fontWeight: 700,
+                    cursor: "pointer", fontSize: "0.88rem", letterSpacing: "0.03em",
+                  }}
+                >
+                  Create Room
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HUB (inside a room)
+  // ═══════════════════════════════════════════════════════════════════════════
+  const leaveRoom = () => {
+    setScreen("lobby");
+    setActiveRoom(null);
+    setIsHost(false);
+    setTab("timer");
+  };
+
+  const toggleTimer = () => {
+    const next = !running;
+    setRunning(next);
+    if (activeRoom && isHost) syncTimer(next, secondsLeft, timerPhase);
+  };
+
+  const resetTimer = () => {
+    setRunning(false);
+    const n = timerPhase === "work" ? workMins * 60 : breakMins * 60;
+    setSecondsLeft(n);
+    setPrevSecs(n);
+    if (activeRoom && isHost) syncTimer(false, n, timerPhase);
+  };
+
+  const cardStyle: React.CSSProperties = {
+    background: "var(--bg-card)", borderRadius: 22, border: "1px solid var(--border)",
+    boxShadow: "var(--shadow-card)", padding: 24,
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", background: "var(--bg-primary)", fontFamily: "'Segoe UI',sans-serif" }}>
+      {/* Main panel */}
+      <div style={{ flex: 1, padding: "32px 40px", overflowY: "auto" }}>
+        {/* Room header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: "1.6rem", color: "var(--text-primary)", fontFamily: "'Georgia','Palatino',serif" }}>
+              {activeRoom?.name}
+            </h2>
+            <p style={{ margin: "4px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+              Code: <span style={{ fontFamily: "monospace" }}>{activeRoom?.code}</span> · {members.length} here · {isHost ? "You're hosting" : "Guest"}
+            </p>
+          </div>
+          <button
+            onClick={leaveRoom}
+            style={{
+              padding: "10px 20px", borderRadius: 20, border: "1px solid var(--border)",
+              background: "var(--bg-secondary)", color: "var(--text-secondary)", fontWeight: 600,
+              cursor: "pointer", fontSize: "0.82rem",
+            }}
+          >
+            ← Leave Room
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 24, borderBottom: "1px solid var(--border-light)", paddingBottom: 12 }}>
+          {TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                padding: "8px 18px", borderRadius: 18, border: "none", cursor: "pointer",
+                background: tab === t.id ? "linear-gradient(135deg,#f97b5c,#f4a26a)" : "var(--bg-secondary)",
+                color: tab === t.id ? "white" : "var(--text-secondary)", fontWeight: 600, fontSize: "0.85rem",
+              }}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Timer tab */}
+        {tab === "timer" && (
+          <div style={cardStyle}>
+            <p style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "0.8rem", letterSpacing: "0.1em", textTransform: "uppercase", margin: "0 0 20px" }}>
+              {timerPhase === "work" ? "Focus Session" : "Break Time"} · Session {sessions + 1}
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 24 }}>
+              <FlipDigit digit={mm[0]} prev={pmm[0]} />
+              <FlipDigit digit={mm[1]} prev={pmm[1]} />
+              <div style={{ display: "flex", alignItems: "center", fontSize: "2rem", color: "var(--text-primary)", fontWeight: 900 }}>:</div>
+              <FlipDigit digit={ss2[0]} prev={pss[0]} />
+              <FlipDigit digit={ss2[1]} prev={pss[1]} />
+            </div>
+            <div style={{ height: 6, borderRadius: 3, background: "var(--bg-secondary)", overflow: "hidden", marginBottom: 24 }}>
+              <div style={{ height: "100%", width: `${progress * 100}%`, background: "linear-gradient(90deg,#f97b5c,#f4a26a)", transition: "width 1s linear" }} />
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", gap: 12 }}>
+              <button
+                onClick={toggleTimer}
+                disabled={!isHost && !!activeRoom}
+                style={{
+                  padding: "12px 32px", borderRadius: 20, border: "none",
+                  background: "linear-gradient(135deg,#f97b5c,#f4a26a)", color: "white", fontWeight: 700,
+                  cursor: isHost || !activeRoom ? "pointer" : "not-allowed", fontSize: "0.9rem",
+                  opacity: isHost || !activeRoom ? 1 : 0.5,
+                }}
+              >
+                {running ? "Pause" : "Start"}
+              </button>
+              <button
+                onClick={resetTimer}
+                disabled={!isHost && !!activeRoom}
+                style={{
+                  padding: "12px 24px", borderRadius: 20, border: "1px solid var(--border)",
+                  background: "var(--bg-secondary)", color: "var(--text-secondary)", fontWeight: 600,
+                  cursor: isHost || !activeRoom ? "pointer" : "not-allowed", fontSize: "0.9rem",
+                  opacity: isHost || !activeRoom ? 1 : 0.5,
+                }}
+              >
+                Reset
+              </button>
+            </div>
+            {isHost && (
+              <div style={{ display: "flex", justifyContent: "center", gap: 20, marginTop: 24, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                <label>
+                  Work (min){" "}
+                  <input
+                    type="number" min={1} value={workMins}
+                    onChange={e => setWorkMins(Math.max(1, +e.target.value))}
+                    style={{ width: 50, padding: 4, borderRadius: 8, border: "1px solid var(--border)", marginLeft: 6 }}
+                  />
+                </label>
+                <label>
+                  Break (min){" "}
+                  <input
+                    type="number" min={1} value={breakMins}
+                    onChange={e => setBreakMins(Math.max(1, +e.target.value))}
+                    style={{ width: 50, padding: 4, borderRadius: 8, border: "1px solid var(--border)", marginLeft: 6 }}
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* Music controls */}
+            <div style={{ marginTop: 28, paddingTop: 20, borderTop: "1px solid var(--border-light)" }}>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10, justifyContent: "center" }}>
+                {VIBES.map(v => (
+                  <button
+                    key={v.id} onClick={() => setVibe(v)} title={v.label}
+                    style={{
+                      background: vibe.id === v.id ? v.gradient : "var(--bg-secondary)",
+                      border: vibe.id === v.id ? `1px solid ${v.color}` : "1px solid var(--border)",
+                      borderRadius: 9, padding: "5px 9px", cursor: "pointer", fontSize: "1rem",
+                      opacity: vibe.id === v.id ? 1 : 0.55,
+                    }}
+                  >
+                    {v.emoji}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
+                <button
+                  onClick={() => setMusicOn(m => !m)}
+                  style={{
+                    padding: "6px 14px", borderRadius: 10, border: "1px solid var(--border)",
+                    background: musicOn ? "var(--accent-soft)" : "var(--bg-secondary)",
+                    color: musicOn ? "var(--accent)" : "var(--text-secondary)", cursor: "pointer",
+                    fontSize: "0.78rem", fontWeight: 600,
+                  }}
+                >
+                  {musicOn ? `♪ ${vibe.label}` : "♪ Off"}
+                </button>
+                {musicOn && (
+                  <input
+                    type="range" min={0} max={1} step={0.05} value={volume}
+                    onChange={e => setVolume(+e.target.value)}
+                    style={{ width: 120, accentColor: vibe.color }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* To-Do tab */}
+        {tab === "todo" && (
+          <div style={cardStyle}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+              <input
+                value={newTodo}
+                onChange={e => setNewTodo(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addTodo()}
+                placeholder="Add a shared task..."
+                style={{
+                  flex: 1, padding: "10px 16px", borderRadius: 14, border: "1px solid var(--border)",
+                  background: "var(--bg-secondary)", color: "var(--text-primary)", outline: "none",
+                }}
+              />
+              <button
+                onClick={addTodo}
+                style={{
+                  padding: "10px 20px", borderRadius: 14, border: "none",
+                  background: "linear-gradient(135deg,#f97b5c,#f4a26a)", color: "white",
+                  fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                Add
+              </button>
+            </div>
+            {todos.length === 0 && (
+              <p style={{ color: "var(--text-muted)", textAlign: "center", padding: "20px 0" }}>
+                No tasks yet — add something the group needs to get done.
+              </p>
+            )}
+            {todos.map(todo => {
+              const done: string[] = todo.completed || [];
+              const mine = done.includes(username);
+              return (
+                <div
+                  key={todo.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 12, padding: "10px 4px",
+                    borderBottom: "1px solid var(--border-light)",
+                  }}
+                >
+                  <input type="checkbox" checked={mine} onChange={() => toggleTodo(todo)} />
+                  <span
+                    style={{
+                      flex: 1, color: "var(--text-primary)",
+                      textDecoration: mine ? "line-through" : "none",
+                      opacity: mine ? 0.5 : 1,
+                    }}
+                  >
+                    {todo.text}
+                  </span>
+                  <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                    {done.length} done
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Canvas tab */}
+        {tab === "syncnotes" && activeRoom && (
+          <div style={{ ...cardStyle, padding: 0, overflow: "hidden" }}>
+            <Whiteboard roomId={activeRoom.id} />
+          </div>
+        )}
+
+        {/* Library tab */}
+        {tab === "library" && (
+          <div style={cardStyle}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={uploadFile}
+              style={{ display: "none" }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              style={{
+                padding: "10px 20px", borderRadius: 14, border: "none",
+                background: "linear-gradient(135deg,#f97b5c,#f4a26a)", color: "white",
+                fontWeight: 700, cursor: uploading ? "not-allowed" : "pointer", marginBottom: 18,
+                opacity: uploading ? 0.6 : 1,
+              }}
+            >
+              {uploading ? "Uploading..." : "+ Upload File"}
+            </button>
+            {libFiles.length === 0 && (
+              <p style={{ color: "var(--text-muted)", textAlign: "center", padding: "20px 0" }}>
+                No files shared yet.
+              </p>
+            )}
+            {libFiles.map(f => (
+              <div
+                key={f.id}
+                style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "10px 4px", borderBottom: "1px solid var(--border-light)",
+                }}
+              >
+                <div>
+                  <p style={{ margin: 0, color: "var(--text-primary)", fontSize: "0.88rem" }}>{f.name}</p>
+                  <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.72rem" }}>
+                    {(f.size / 1024).toFixed(0)} KB · shared by {f.uploadedBy}
+                  </p>
+                </div>
+                {f.data && (
+                  <a
+                    href={f.data}
+                    download={f.name}
+                    style={{ color: "#f97b5c", fontWeight: 700, fontSize: "0.82rem", textDecoration: "none" }}
+                  >
+                    Download
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Chat side panel */}
+      <div
+        style={{
+          width: 300, borderLeft: "1px solid var(--border)", background: "var(--bg-card)",
+          display: "flex", flexDirection: "column", padding: "24px 18px",
+        }}
+      >
+        <h3 style={{ margin: "0 0 14px", fontSize: "1rem", color: "var(--text-primary)" }}>Room Chat</h3>
+        <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
+          {chatMessages.map(m => (
+            <div key={m.id} style={{ marginBottom: 10 }}>
+              <p style={{ margin: 0, fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 600 }}>{m.from}</p>
+              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-primary)" }}>{m.text}</p>
+            </div>
+          ))}
+          <div ref={chatBottomRef} />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={chatInput}
+            onChange={e => setChatInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && sendChat()}
+            placeholder="Message..."
+            style={{
+              flex: 1, padding: "8px 12px", borderRadius: 12, border: "1px solid var(--border)",
+              background: "var(--bg-secondary)", color: "var(--text-primary)", outline: "none", fontSize: "0.85rem",
+            }}
+          />
+          <button
+            onClick={sendChat}
+            style={{
+              padding: "8px 14px", borderRadius: 12, border: "none",
+              background: "linear-gradient(135deg,#f97b5c,#f4a26a)", color: "white", cursor: "pointer",
+            }}
+          >
+            →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
